@@ -1,0 +1,15 @@
+{
+    "app": {
+        "interface": "0.0.0.0",
+        "port": "443",
+        "ssl": {
+            "crt_path": "/etc/ssl/my.crt",
+            "key_path": "/etc/ssl/my.key"
+        },
+        "username": "admin",
+        "passwd": "admin",
+        "log_path": "/var/log//valve-controller.log",
+        "video_device_path": "/dev/video0"
+    }
+}
+
