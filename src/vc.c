@@ -97,7 +97,26 @@ int index_page(void *p, onion_request *req, onion_response *res) {
     ONION_WARNING("Failed login attempt");
     return OCS_PROCESSED;
   }
-  return onion_shortcut_response("Hello world", HTTP_OK, req, res);
+  char tmp_dir[PATH_MAX], public_dir[PATH_MAX], file_path[PATH_MAX];
+  readlink("/proc/self/exe", tmp_dir, PATH_MAX - 128);
+  char* parent_dir = dirname(tmp_dir); // doc exlicitly says we shouldNT free() it.
+  //strncpy(public_dir, parent_dir, PATH_MAX - 1);
+  // If the length of src is less than n, strncpy() writes an additional NULL characters to dest to ensure that
+  // a total of n characters are written.
+  // HOWEVER, if there is no null character among the first n character of src, the string placed in dest will
+  // not be null-terminated. So strncpy() does not guarantee that the destination string will be NULL terminated.
+  // Ref: https://www.geeksforgeeks.org/why-strcpy-and-strncpy-are-not-safe-to-use/
+  strncpy(public_dir, parent_dir, PATH_MAX);
+  strcpy(public_dir + strnlen(public_dir, PATH_MAX - 1), "/public/");
+  printf("public_dir: %s\n", public_dir);
+  const char* file_name = onion_request_get_query(req, "file_name");
+  strncpy(file_path, public_dir, PATH_MAX);  
+  if (strcmp(file_name, "vc.js") == 0) {
+    strcpy(file_path + strnlen(file_path, PATH_MAX), "js/vc.js");
+  } else {
+    strcpy(file_path + strnlen(file_path, PATH_MAX), "html/index.html");
+  }
+  return onion_shortcut_response_file(file_path, req, res);
 }
 
 
