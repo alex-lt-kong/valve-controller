@@ -11,12 +11,41 @@ import Button from '@mui/material/Button';
 import CardActions from '@mui/material/CardActions';
 import CardContent from '@mui/material/CardContent';
 import CardMedia from '@mui/material/CardMedia';
-import Select, { SelectChangeEvent } from '@mui/material/Select';
+import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import InputLabel from '@mui/material/InputLabel';
 import GasMeterIcon from '@mui/icons-material/GasMeter';
 import FormControl from '@mui/material/FormControl';
 import Stack from '@mui/material/Stack';
+import LinearProgress from '@mui/material/LinearProgress';
+import PropTypes from 'prop-types';
+
+
+function LinearProgressWithLabel(props) {
+  return (
+    <Box sx={{display: 'flex', alignItems: 'center'}} mx='2em'>
+      <Box sx={{width: '100%', mr: 1}}>
+        <LinearProgress variant="determinate" {...props} />
+      </Box>
+      <Box sx={{minWidth: '4em'}}>
+        <Typography variant="body2" color="text.secondary">
+          {`${props.secondstotal - props.seconds}/${props.secondstotal}秒`}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+LinearProgressWithLabel.propTypes = {
+  /**
+   * The value of the progress indicator for the determinate and buffer variants.
+   * Value between 0 and 100.
+   */
+  value: PropTypes.number.isRequired,
+  secondstotal: PropTypes.number,
+  seconds: PropTypes.number
+};
+
 
 class LiveImages extends React.Component {
   constructor(props) {
@@ -24,21 +53,19 @@ class LiveImages extends React.Component {
     this.state = {
       imageEndpoint: './get_live_image_jpg/',
       valveSessionLengthSec: 10,
-      simpleSnackbar: null
+      simpleSnackbar: null,
+      secondsTotal: 0,
+      seconds: 0
     };
+    this.timer = 0;
+    this.startTimer = this.startTimer.bind(this);
+    this.countDown = this.countDown.bind(this);
+
     this.onSelectItemChange = this.onSelectItemChange.bind(this);
     this.onOpenValveButtonClick = this.onOpenValveButtonClick.bind(this);
   }
 
-  componentDidMount() {
-    this.imgID = setInterval(() => {
-      this.tickImg();
-    }, 600);
-  }
-
-  tickImg() {
-    this.setState({imageEndpoint: './get_live_image_jpg/?' + Math.random()});
-  }
+  componentDidMount() {}
 
   onSelectItemChange(event) {
     const parsedValue = parseInt(event.target.value);
@@ -53,9 +80,34 @@ class LiveImages extends React.Component {
           console.log(response);
         })
         .catch((error) => {
-          console.log(error);
+          console.error(error);
           alert(`${error}`);
         });
+    this.setState({
+      secondsTotal: this.state.valveSessionLengthSec,
+      seconds: this.state.valveSessionLengthSec
+    }, ()=>{
+      this.startTimer();
+    });
+  }
+
+  startTimer() {
+    if (this.timer === 0 && this.state.seconds > 0) {
+      this.timer = setInterval(this.countDown, 1000);
+    }
+  }
+
+  countDown() {
+    // Remove one second, set state so a re-render happens.
+    const seconds = this.state.seconds - 1;
+    this.setState({
+      seconds: seconds
+    });
+    // Check if we're at zero.
+    if (seconds === 0) {
+      clearInterval(this.timer);
+      this.timer = 0;
+    }
   }
 
   render() {
@@ -64,9 +116,13 @@ class LiveImages extends React.Component {
         <Card sx={{maxWidth: 1280}}>
           <CardMedia
             component="img"
-            height="530"
             image={this.state.imageEndpoint}
             sx={{objectFit: 'contain'}}
+            onLoad={()=>{
+              (new Promise((resolve) => setTimeout(resolve, 600))).then(() => {
+                this.setState({imageEndpoint: './get_live_image_jpg/?' + Math.random()});
+              });
+            }}
           />
           <CardContent>
             <Box sx={{minWidth: 120}}>
@@ -78,8 +134,8 @@ class LiveImages extends React.Component {
                     label="时长" onChange={this.onSelectItemChange}
                   >
                     <MenuItem value={10}>10秒</MenuItem>
-                    <MenuItem value={30}>30秒</MenuItem>
                     <MenuItem value={60}>60秒</MenuItem>
+                    <MenuItem value={300}>5分钟</MenuItem>
                   </Select>
                 </FormControl>
                 <Button size="small" color="primary" onClick={this.onOpenValveButtonClick}>
@@ -89,6 +145,12 @@ class LiveImages extends React.Component {
             </Box>
           </CardContent>
           <CardActions>
+            <Box sx={{width: '100%'}}>
+              <LinearProgressWithLabel
+                value={(this.state.secondsTotal - this.state.seconds) / this.state.secondsTotal * 100}
+                seconds={this.state.seconds} secondstotal={this.state.secondsTotal}
+              />
+            </Box>
           </CardActions>
         </Card>
       </>
@@ -105,6 +167,16 @@ class NavBar extends React.Component {
   }
 
   componentDidMount() {
+    axios.get('../get_logged_in_user_json/')
+        .then((response) => {
+          this.setState({
+            user: response.data.data
+          });
+        })
+        .catch((error) => {
+          console.error(error);
+          alert(`${error}`);
+        });
   }
 
   render() {

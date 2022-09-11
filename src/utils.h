@@ -23,6 +23,7 @@ extern pthread_mutex_t mutex_lock;
 
 struct ValveSessionPayload {
   size_t sec;
+  char username[MSG_BUF_SIZE];
 };
 struct CamPayload {
   const char* devicePath;

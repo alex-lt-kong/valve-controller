@@ -15,6 +15,7 @@
 #include <libgen.h> /* dirname() */
 #include <onion/types.h>
 #include <onion/response.h>
+#include <sqlite3.h>
 
 #include "cam.h"
 #include "utils.h"
@@ -58,6 +59,61 @@ void* valve_session(void* payload) {
   sleep(pl->sec);  
   gpioWrite(GPIO_PIN, PI_LOW);
   ONION_INFO("Solenoid valve closed");
+
+
+  sqlite3 *db;
+  time_t now;
+  char msg[MSG_BUF_SIZE];
+  char tmp_dir[PATH_MAX], db_path[PATH_MAX];
+  readlink("/proc/self/exe", tmp_dir, PATH_MAX - 128);
+  char* db_dir = dirname(tmp_dir); // doc exlicitly says we shouldNT free() it.
+  strncpy(db_path, db_dir, strnlen(db_dir, PATH_MAX));
+  strcat(db_path, "/data.sqlite");
+
+  const char* sql_create = 
+      "CREATE TABLE IF NOT EXISTS valve_session"
+      "("
+      "  [record_id] INTEGER PRIMARY KEY AUTOINCREMENT,"
+      "  [record_time] TEXT,"
+      "  [username] TEXT,"
+      "  [duration_sec] INTEGER"
+      ")";
+   const char* sql_insert = "INSERT INTO valve_session"
+            "(record_time, username, duration_sec) "
+            "VALUES(?, ?, ?);";
+
+  int rc = sqlite3_open(db_path, &db);
+  char *sqlite_err_msg = 0;
+  if (rc != SQLITE_OK) {
+    snprintf(msg, MSG_BUF_SIZE, "Cannot open database [%s]: %s. INSERT will be skipped", db_path, sqlite3_errmsg(db));
+    ONION_ERROR(msg);
+    sqlite3_close(db);
+  }
+  rc = sqlite3_exec(db, sql_create, 0, 0, &sqlite_err_msg);      
+  if (rc != SQLITE_OK) {
+    snprintf(msg, MSG_BUF_SIZE, "SQL error: %s. CREATE is not successful.\n", sqlite_err_msg);
+    ONION_ERROR(msg);
+    sqlite3_free(sqlite_err_msg);
+    sqlite3_close(db);
+  }
+  sqlite3_stmt *stmt;
+  sqlite3_prepare_v2(db, sql_insert, 512, &stmt, NULL);
+  if(stmt != NULL) {
+      time(&now);
+      char buf[sizeof("1970-01-01 00:00:00")];
+      strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S", localtime(&now)); 
+      sqlite3_bind_text(stmt, 1, buf, -1, NULL);
+      sqlite3_bind_text(stmt, 2, pl->username, -1, NULL);
+      sqlite3_bind_int(stmt, 3, pl->sec);
+      sqlite3_step(stmt);
+      rc = sqlite3_finalize(stmt);
+      if (rc != SQLITE_OK) {
+        snprintf(msg, MSG_BUF_SIZE, "SQL error: %d. INSERT is not successful.\n", rc);
+        ONION_ERROR(msg);
+        sqlite3_close(db);
+      }
+  }
+  sqlite3_close(db);
   return NULL;
 }
 
@@ -67,10 +123,11 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     ONION_WARNING("Failed login attempt");
     return OCS_PROCESSED;
   }
-  free(authenticated_user);
   char msg[MSG_BUF_SIZE];
   struct ValveSessionPayload pl;
-  
+  strcpy(pl.username, authenticated_user);
+  free(authenticated_user);
+
   const char* length_sec_str = onion_request_get_query(req, "length_sec");
   if (length_sec_str == NULL) {
     return onion_shortcut_response("length_sec not specified", HTTP_BAD_REQUEST, req, res);
@@ -80,6 +137,7 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     return onion_shortcut_response(msg, HTTP_BAD_REQUEST, req, res);
   }
   pl.sec = atoi(length_sec_str);
+  
   pthread_t tid;
   if (pthread_create(&tid, NULL, valve_session, &pl) == 0) {
     snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"success\", \"data\":\"Valve session length: %dsec\"}", pl.sec);
@@ -91,7 +149,7 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
   }
 }
 
-int get_login_user_json(void *p, onion_request *req, onion_response *res) {
+int get_logged_in_user_json(void *p, onion_request *req, onion_response *res) {
   char* authenticated_user = authenticate(req, res, root_users);
   if (authenticated_user == NULL) {
     ONION_WARNING("Failed login attempt");
@@ -166,8 +224,6 @@ int main(int argc, char **argv) {
   json_object* root_app = json_object_object_get(root, "app");
   json_object* root_app_port = json_object_object_get(root_app, "port");
   json_object* root_app_interface = json_object_object_get(root_app, "interface");
-  json_object* root_app_username = json_object_object_get(root_app, "username");
-  json_object* root_app_passwd = json_object_object_get(root_app, "passwd");
   json_object* root_app_ssl = json_object_object_get(root_app, "ssl");
   root_users = json_object_object_get(root_app, "users");
   json_object* root_app_ssl_crt_path = json_object_object_get(root_app_ssl, "crt_path");
@@ -220,7 +276,7 @@ int main(int argc, char **argv) {
   onion_url_add(urls, "", index_page);
   onion_url_add(urls, "get_live_image_jpg/", get_live_image_jpg);
   onion_url_add(urls, "open_valve/", oepn_valve);
-  onion_url_add(urls, "get_login_user_json/", get_login_user_json);
+  onion_url_add(urls, "get_logged_in_user_json/", get_logged_in_user_json);
   
   pthread_t tid;
   if (pthread_create(&tid, NULL, thread_capture_live_image, &cpl) != 0) {
