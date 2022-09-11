@@ -1,6 +1,5 @@
-sound-repository/custom-event/
+*/public/js/vc.js
 settings.json
-sound-repository/custom-event/
 !/.vscode/settings.json
 
 # ===== Node =====

@@ -13,12 +13,12 @@
 #include <limits.h>
 #include <stdint.h>
 #include <pthread.h>
+/* JSON */
+#include <json-c/json.h>
 
 #define MSG_BUF_SIZE 4096
 #define JPEG_BUF_SIZE 1000000
 
-extern const char* pac_username;
-extern const char* pac_passwd;
 extern pthread_mutex_t mutex_lock;
 
 struct ValveSessionPayload {
@@ -35,8 +35,14 @@ struct CamPayload {
  * modified, the caller should do whatever it wants as if such authentication
  * has never happened. If a request is not authenticated, proper response has been
  * written to res, caller should just return OCS_PROCESSED to its caller.
+ * @param req: the onion_request structure as passed by ONION
+ * @param res: the onion_response structure as passed by ONION
+ * @param users: the json_object structure as defined in <json-c/json.h>, storing all username/password combinations
+ * as JSON object
+ * @returns if a crediential is authenticated, returns a pointer to the user being authenticated, else returns NULL
+ * Users needs to free() the returned const char* themselves
 */
-bool authenticate(onion_request *req, onion_response *res);
+char* authenticate(onion_request *req, onion_response *res, json_object* users);
 
 int play_sound(const char* sound_path);
 

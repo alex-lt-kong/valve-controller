@@ -22,6 +22,8 @@
     "initializer_list": "cpp",
     "utility": "cpp",
     "mutex": "c",
-    "condition_variable": "c"
+    "condition_variable": "c",
+    "pthread.h": "c",
+    "json.h": "c"
   }
 }

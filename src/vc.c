@@ -10,8 +10,6 @@
 #include <stdio.h>
 #include <pigpio.h>
 #include <sys/wait.h> /* for waitpid */
-/* JSON */
-#include <json-c/json.h>
 /* Check directory's existence*/
 #include <dirent.h>
 #include <libgen.h> /* dirname() */
@@ -23,12 +21,15 @@
 #define GPIO_PIN 17
 
 struct CamPayload cpl;
+json_object* root_users;
 
 int get_live_image_jpg(void *p, onion_request *req, onion_response *res) {
-  if (authenticate(req, res) == false) {
+  char* authenticated_user = authenticate(req, res, root_users);
+  if (authenticated_user == NULL) {
     ONION_WARNING("Failed login attempt");
     return OCS_PROCESSED;
   }
+  free(authenticated_user);
   if (cpl.jpeg_image_size == 0) {
     return onion_shortcut_response("JPEG image is empty!", HTTP_NOT_FOUND, req, res);
   }
@@ -61,10 +62,12 @@ void* valve_session(void* payload) {
 }
 
 int oepn_valve(void *p, onion_request *req, onion_response *res) {
-  if (authenticate(req, res) == false) {
+  char* authenticated_user = authenticate(req, res, root_users);
+  if (authenticated_user == NULL) {
     ONION_WARNING("Failed login attempt");
     return OCS_PROCESSED;
   }
+  free(authenticated_user);
   char msg[MSG_BUF_SIZE];
   struct ValveSessionPayload pl;
   
@@ -86,17 +89,29 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     ONION_ERROR(msg);
     return onion_shortcut_response(msg, HTTP_INTERNAL_ERROR, req, res);
   }
-  
+}
+
+int get_login_user_json(void *p, onion_request *req, onion_response *res) {
+  char* authenticated_user = authenticate(req, res, root_users);
+  if (authenticated_user == NULL) {
+    ONION_WARNING("Failed login attempt");
+    return OCS_PROCESSED;
+  }
+  char msg[MSG_BUF_SIZE];
+  printf("%s\n", authenticated_user);
+  snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"success\",\"data\":\"%s\"}", authenticated_user);
+  free(authenticated_user);
+  return onion_shortcut_response(msg, HTTP_OK, req, res);
 }
 
 int index_page(void *p, onion_request *req, onion_response *res) {
 
-  //char err_msg[MSG_BUF_SIZE];
-  //char info_msg[MSG_BUF_SIZE];
-  if (authenticate(req, res) == false) {
+  char* authenticated_user = authenticate(req, res, root_users);
+  if (authenticated_user == NULL) {
     ONION_WARNING("Failed login attempt");
     return OCS_PROCESSED;
   }
+  free(authenticated_user);
   char tmp_dir[PATH_MAX], public_dir[PATH_MAX], file_path[PATH_MAX];
   readlink("/proc/self/exe", tmp_dir, PATH_MAX - 128);
   char* parent_dir = dirname(tmp_dir); // doc exlicitly says we shouldNT free() it.
@@ -106,13 +121,18 @@ int index_page(void *p, onion_request *req, onion_response *res) {
   // HOWEVER, if there is no null character among the first n character of src, the string placed in dest will
   // not be null-terminated. So strncpy() does not guarantee that the destination string will be NULL terminated.
   // Ref: https://www.geeksforgeeks.org/why-strcpy-and-strncpy-are-not-safe-to-use/
-  strncpy(public_dir, parent_dir, PATH_MAX);
+  strncpy(public_dir, parent_dir, PATH_MAX - 1);
   strcpy(public_dir + strnlen(public_dir, PATH_MAX - 1), "/public/");
   printf("public_dir: %s\n", public_dir);
   const char* file_name = onion_request_get_query(req, "file_name");
-  strncpy(file_path, public_dir, PATH_MAX);  
-  if (strcmp(file_name, "vc.js") == 0) {
+  strncpy(file_path, public_dir, PATH_MAX);
+  if (file_name == NULL) {
+    strcpy(file_path + strnlen(file_path, PATH_MAX), "html/index.html");
+  }
+  else if (strcmp(file_name, "vc.js") == 0) {
     strcpy(file_path + strnlen(file_path, PATH_MAX), "js/vc.js");
+  } else if (strcmp(file_name, "favicon.svg") == 0) {
+    strcpy(file_path + strnlen(file_path, PATH_MAX), "img/favicon.svg");
   } else {
     strcpy(file_path + strnlen(file_path, PATH_MAX), "html/index.html");
   }
@@ -149,22 +169,20 @@ int main(int argc, char **argv) {
   json_object* root_app_username = json_object_object_get(root_app, "username");
   json_object* root_app_passwd = json_object_object_get(root_app, "passwd");
   json_object* root_app_ssl = json_object_object_get(root_app, "ssl");
+  root_users = json_object_object_get(root_app, "users");
   json_object* root_app_ssl_crt_path = json_object_object_get(root_app_ssl, "crt_path");
   json_object* root_app_ssl_key_path = json_object_object_get(root_app_ssl, "key_path");
   json_object* root_app_video_device_path = json_object_object_get(root_app, "video_device_path");
   json_object* root_app_log_path = json_object_object_get(root_app, "log_path");
   
-  pac_username = json_object_get_string(root_app_username);
-  pac_passwd = json_object_get_string(root_app_passwd);
   const char* log_path = json_object_get_string(root_app_log_path);
   const char* ssl_crt_path = json_object_get_string(root_app_ssl_crt_path);
   const char* ssl_key_path = json_object_get_string(root_app_ssl_key_path);
   cpl.devicePath = json_object_get_string(root_app_video_device_path);
   if (
-    log_path ==NULL || pac_username == NULL || pac_passwd == NULL ||
-    ssl_crt_path == NULL || ssl_key_path == NULL
+    log_path ==NULL ||  ssl_crt_path == NULL || ssl_key_path == NULL
   ) {
-    ONION_ERROR("Either root_app_log_path, username, passwd, ssl_crt_path, ssl_key_path is not set.");
+    ONION_ERROR("Either root_app_log_path, ssl_crt_path, ssl_key_path is not set.");
     return 3;
   }
 
@@ -202,6 +220,7 @@ int main(int argc, char **argv) {
   onion_url_add(urls, "", index_page);
   onion_url_add(urls, "get_live_image_jpg/", get_live_image_jpg);
   onion_url_add(urls, "open_valve/", oepn_valve);
+  onion_url_add(urls, "get_login_user_json/", get_login_user_json);
   
   pthread_t tid;
   if (pthread_create(&tid, NULL, thread_capture_live_image, &cpl) != 0) {

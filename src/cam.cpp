@@ -33,7 +33,7 @@ void* thread_capture_live_image(void* payload) {
   char dt_buf[] = "19700101-000000";
   std::vector<uint8_t> buf = {};
   std::vector<int> s = {};
-  const uint16_t interval = 1;
+  const uint16_t interval = 2;
   uint32_t iter = interval;
   while (!done) {
     
