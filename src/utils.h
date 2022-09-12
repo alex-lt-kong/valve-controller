@@ -17,7 +17,6 @@
 #include <json-c/json.h>
 
 #define MSG_BUF_SIZE 8192
-#define JPEG_BUF_SIZE 1000000
 
 extern pthread_mutex_t mutex_lock;
 

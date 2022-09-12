@@ -26,7 +26,6 @@ struct CamPayload cpl;
 json_object* root_users;
 
 int get_valve_session_history_json(void *p, onion_request *req, onion_response *res) {
-  printf("db_path: %s\n", db_path);
   sqlite3 *db;
   if (sqlite3_open(db_path, &db)) {
     ONION_ERROR("Could not open the.db");

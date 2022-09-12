@@ -1,7 +1,7 @@
-#include <opencv4/opencv2/core/core.hpp>
-#include <opencv4/opencv2/highgui/highgui.hpp>
-#include <opencv4/opencv2/imgproc/imgproc.hpp>
-#include <opencv4/opencv2/imgcodecs.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <unistd.h>
 #include <libgen.h>
 #include <iostream>
@@ -30,7 +30,7 @@ void* thread_capture_live_image(void* payload) {
   VideoCapture cap;
   time_t now;
 
-  char dt_buf[] = "19700101-000000";
+  char dt_buf[] = "1970-01-01 00:00:00";
   std::vector<uint8_t> buf = {};
   std::vector<int> s = {};
   const uint16_t interval = 2;
@@ -64,13 +64,17 @@ void* thread_capture_live_image(void* payload) {
     if (iter < interval) { continue; }
     iter = 0;
     rotate(frame, frame, ROTATE_180);
-    uint16_t font_scale = 1;
     time(&now);
-    strftime(dt_buf, sizeof(dt_buf), "%Y%m%d-%H%M%S", localtime(&now));
-    //Size textSize = getTextSize(dt_buf, FONT_HERSHEY_DUPLEX, font_scale, 8 * font_scale, nullptr);
-   //putText(
-    //  frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false
-    //);
+    strftime(dt_buf, sizeof(dt_buf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    uint16_t font_scale = 2;
+    Size textSize = getTextSize(dt_buf, FONT_HERSHEY_DUPLEX, font_scale, 8 * font_scale, nullptr);
+    putText(
+      frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false
+    );
+    putText(
+      frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(255,255,255), 2 * font_scale, LINE_AA, false
+    );
+    line(frame, Point(0, 720 * 0.65),  Point(1280 * 0.07, 720 * 0.65), Scalar(0, 0, 255), 10);
     imencode(".jpg", frame, buf, s);
     pthread_mutex_lock(&mutex_lock);
     if (pl->jpeg_image_size > 0) {
