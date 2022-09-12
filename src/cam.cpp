@@ -66,7 +66,11 @@ void* thread_capture_live_image(void* payload) {
     rotate(frame, frame, ROTATE_180);
     uint16_t font_scale = 1;
     time(&now);
-    strftime(dt_buf, sizeof(dt_buf), "%Y%m%d-%H%M%S", localtime(&now));    
+    strftime(dt_buf, sizeof(dt_buf), "%Y%m%d-%H%M%S", localtime(&now));
+    //Size textSize = getTextSize(dt_buf, FONT_HERSHEY_DUPLEX, font_scale, 8 * font_scale, nullptr);
+   //putText(
+    //  frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false
+    //);
     imencode(".jpg", frame, buf, s);
     pthread_mutex_lock(&mutex_lock);
     if (pl->jpeg_image_size > 0) {

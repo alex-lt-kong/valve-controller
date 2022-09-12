@@ -1,5 +1,5 @@
 data.sqlite
-public/js/*.js
+public/js/vc.js
 settings.json
 !/.vscode/settings.json
 

@@ -1,6 +1,4 @@
-# public-address-client
-
-A RESTful-based public address client designed to run on embedded devices.
+# valve-controller
 
 ## Dependencies
 * [Onion HTTP library](https://github.com/davidmoreno/onion)
@@ -19,10 +17,10 @@ cmake ../
 make
 make install
 ```
-* OpenCV: Install following [this link](https://github.com/alex-lt-kong/q-rtsp-viewer#opencv-installation-and-reference).
+* OpenCV: `apt-get install libopencv-dev`
 
 /usr/local/lib/arm-linux-gnueabihf/
 
 install ffmpeg before compiling opencv to open rtsp sources.
 apt install libopencv-dev# valve-controller
-# valve-controller
+

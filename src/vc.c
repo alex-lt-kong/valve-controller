@@ -21,8 +21,44 @@
 #include "utils.h"
 #define GPIO_PIN 17
 
+char db_path[PATH_MAX];
 struct CamPayload cpl;
 json_object* root_users;
+
+int get_valve_session_history_json(void *p, onion_request *req, onion_response *res) {
+  printf("db_path: %s\n", db_path);
+  sqlite3 *db;
+  if (sqlite3_open(db_path, &db)) {
+    ONION_ERROR("Could not open the.db");
+    return 1;
+  }
+
+  sqlite3_stmt *stmt;
+  if (sqlite3_prepare_v2(db, "SELECT record_id, record_time, username, duration_sec FROM valve_session LIMIT 100", -1, &stmt, NULL)) {
+      ONION_ERROR("Error executing SELECT statement");
+      sqlite3_close(db);
+      return 2;
+  }
+
+  char result[65536] = "{\"status\":\"success\",\"data\":[";
+  const size_t item_size = 256;
+  char item[item_size];
+  while (sqlite3_step(stmt) != SQLITE_DONE) {
+      snprintf(
+        item, item_size,
+        "{\"record_id\":%d, \"record_time\":\"%s\", \"username\":\"%s\", \"duration_sec\":%d},",
+        sqlite3_column_int(stmt, 0),
+        sqlite3_column_text(stmt, 1),
+        sqlite3_column_text(stmt, 2),
+        sqlite3_column_int(stmt, 3)
+      );
+      strcat(result, item);
+  }
+  strcpy(result + strlen(result) - 1, "]}");
+  sqlite3_finalize(stmt);
+  sqlite3_close(db);
+  return onion_shortcut_response(result, HTTP_OK, req, res);
+}
 
 int get_live_image_jpg(void *p, onion_request *req, onion_response *res) {
   char* authenticated_user = authenticate(req, res, root_users);
@@ -64,11 +100,6 @@ void* valve_session(void* payload) {
   sqlite3 *db;
   time_t now;
   char msg[MSG_BUF_SIZE];
-  char tmp_dir[PATH_MAX], db_path[PATH_MAX];
-  readlink("/proc/self/exe", tmp_dir, PATH_MAX - 128);
-  char* db_dir = dirname(tmp_dir); // doc exlicitly says we shouldNT free() it.
-  strncpy(db_path, db_dir, strnlen(db_dir, PATH_MAX));
-  strcat(db_path, "/data.sqlite");
 
   const char* sql_create = 
       "CREATE TABLE IF NOT EXISTS valve_session"
@@ -91,7 +122,7 @@ void* valve_session(void* payload) {
   }
   rc = sqlite3_exec(db, sql_create, 0, 0, &sqlite_err_msg);      
   if (rc != SQLITE_OK) {
-    snprintf(msg, MSG_BUF_SIZE, "SQL error: %s. CREATE is not successful.\n", sqlite_err_msg);
+    snprintf(msg, MSG_BUF_SIZE, "SQL error: %s. CREATE is not successful.", sqlite_err_msg);
     ONION_ERROR(msg);
     sqlite3_free(sqlite_err_msg);
     sqlite3_close(db);
@@ -156,7 +187,6 @@ int get_logged_in_user_json(void *p, onion_request *req, onion_response *res) {
     return OCS_PROCESSED;
   }
   char msg[MSG_BUF_SIZE];
-  printf("%s\n", authenticated_user);
   snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"success\",\"data\":\"%s\"}", authenticated_user);
   free(authenticated_user);
   return onion_shortcut_response(msg, HTTP_OK, req, res);
@@ -181,7 +211,6 @@ int index_page(void *p, onion_request *req, onion_response *res) {
   // Ref: https://www.geeksforgeeks.org/why-strcpy-and-strncpy-are-not-safe-to-use/
   strncpy(public_dir, parent_dir, PATH_MAX - 1);
   strcpy(public_dir + strnlen(public_dir, PATH_MAX - 1), "/public/");
-  printf("public_dir: %s\n", public_dir);
   const char* file_name = onion_request_get_query(req, "file_name");
   strncpy(file_path, public_dir, PATH_MAX);
   if (file_name == NULL) {
@@ -212,6 +241,15 @@ static void shutdown_server(int sig_num){
   
 }
 
+void initialize_sig_handler() {
+  struct sigaction act;
+  act.sa_handler = shutdown_server;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_RESETHAND;
+  sigaction(SIGINT, &act, 0);
+  sigaction(SIGABRT, &act, 0);
+  sigaction(SIGTERM, &act, 0);
+}
 
 int main(int argc, char **argv) {
 
@@ -219,7 +257,9 @@ int main(int argc, char **argv) {
  
   realpath(argv[0], bin_path);
   strcpy(settings_path, dirname(bin_path));
+  strcpy(db_path, settings_path);
   strcat(settings_path, "/settings.json");
+  strcat(db_path, "/data.sqlite");
   json_object* root = json_object_from_file(settings_path);
   json_object* root_app = json_object_object_get(root, "app");
   json_object* root_app_port = json_object_object_get(root_app, "port");
@@ -260,9 +300,6 @@ int main(int argc, char **argv) {
     freopen(log_path, "a", stderr);
   }
 
-  signal(SIGINT,shutdown_server);
-  signal(SIGTERM,shutdown_server);
-
   ONION_VERSION_IS_COMPATIBLE_OR_ABORT();
 
   o=onion_new(O_THREADED);
@@ -277,7 +314,9 @@ int main(int argc, char **argv) {
   onion_url_add(urls, "get_live_image_jpg/", get_live_image_jpg);
   onion_url_add(urls, "open_valve/", oepn_valve);
   onion_url_add(urls, "get_logged_in_user_json/", get_logged_in_user_json);
+  onion_url_add(urls, "get_valve_session_history_json/", get_valve_session_history_json);
   
+
   pthread_t tid;
   if (pthread_create(&tid, NULL, thread_capture_live_image, &cpl) != 0) {
     ONION_ERROR("Failed to pthread_create() thread_capture_live_image");
@@ -293,13 +332,7 @@ int main(int argc, char **argv) {
     json_object_get_string(root_app_interface), json_object_get_string(root_app_port)
   );
 
-  struct sigaction act;
-  act.sa_handler = shutdown_server;
-  sigemptyset(&act.sa_mask);
-  act.sa_flags = SA_RESETHAND;
-  sigaction(SIGINT, &act, 0);
-  sigaction(SIGABRT, &act, 0);
-  sigaction(SIGTERM, &act, 0);
+  initialize_sig_handler();
 
   onion_listen(o);
   ONION_INFO("Onion server quits gracefully");

@@ -19,7 +19,72 @@ import FormControl from '@mui/material/FormControl';
 import Stack from '@mui/material/Stack';
 import LinearProgress from '@mui/material/LinearProgress';
 import PropTypes from 'prop-types';
+import MUIDataTable from 'mui-datatables';
 
+class ValveSessionHistory extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      valveSessionHistory: null
+    };
+  }
+
+  componentDidMount() {
+    axios.get('../get_valve_session_history_json/')
+        .then((response) => {
+          this.setState({
+            valveSessionHistory: response.data.data
+          }, ()=>{
+            console.log(this.state.valveSessionHistory);
+          });
+        })
+        .catch((error) => {
+          console.log(error);
+          alert(`${error}`);
+        // You canNOT write error.response or whatever similar here.
+        // The reason is that this catch() catches both network error and other errors,
+        // which may or may not have a response property.
+        });
+  }
+
+  render() {
+    const columns = [
+      {
+        name: 'record_time',
+        label: '时间'
+      },
+      {
+        name: 'username',
+        label: '用户'
+      },
+      {
+        name: 'duration_sec',
+        label: '时长'
+      }
+    ];
+    const options = {
+      download: false,
+      print: false,
+      responsive: 'standard',
+      selectableRowsHeader: false,
+      sortOrder: {
+        name: 'record_time',
+        direction: 'asc'
+      },
+      filter: false,
+      viewColumns: false,
+      selectableRows: 'none'
+    };
+
+    if (this.state.valveSessionHistory !== null) {
+      return (
+        <MUIDataTable title={'历史记录'} data={this.state.valveSessionHistory} columns={columns} options={options} />
+      );
+    } else {
+      return <></>;
+    }
+  }
+}
 
 function LinearProgressWithLabel(props) {
   return (
@@ -77,18 +142,17 @@ class LiveImages extends React.Component {
   onOpenValveButtonClick() {
     axios.get(`./open_valve/?length_sec=${this.state.valveSessionLengthSec}`)
         .then((response) => {
-          console.log(response);
+          this.setState({
+            secondsTotal: this.state.valveSessionLengthSec,
+            seconds: this.state.valveSessionLengthSec
+          }, ()=>{
+            this.startTimer();
+          });
         })
         .catch((error) => {
           console.error(error);
           alert(`${error}`);
         });
-    this.setState({
-      secondsTotal: this.state.valveSessionLengthSec,
-      seconds: this.state.valveSessionLengthSec
-    }, ()=>{
-      this.startTimer();
-    });
   }
 
   startTimer() {
@@ -120,6 +184,11 @@ class LiveImages extends React.Component {
             sx={{objectFit: 'contain'}}
             onLoad={()=>{
               (new Promise((resolve) => setTimeout(resolve, 600))).then(() => {
+                this.setState({imageEndpoint: './get_live_image_jpg/?' + Math.random()});
+              });
+            }}
+            onError={()=>{
+              (new Promise((resolve) => setTimeout(resolve, 2000))).then(() => {
                 this.setState({imageEndpoint: './get_live_image_jpg/?' + Math.random()});
               });
             }}
@@ -227,12 +296,13 @@ class Index extends React.Component {
         <div style={{maxWidth: '1440px', display: 'block', marginLeft: 'auto', marginRight: 'auto'}}>
           <Grid container>
             <Grid xs={12} md={8}>
-              <Box display="flex" justifyContent="center" alignItems="center" mb='2rem'>
+              <Box display="flex" justifyContent="center" alignItems="center" mx="5px" mb="8px">
                 <LiveImages />
               </Box>
             </Grid>
             <Grid xs={12} md={4} >
-              <Box mb='2rem'>
+              <Box mx="5px">
+                <ValveSessionHistory />
               </Box>
             </Grid>
           </Grid>
