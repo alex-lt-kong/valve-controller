@@ -16,9 +16,10 @@
 /* JSON */
 #include <json-c/json.h>
 
-#define MSG_BUF_SIZE 8192
+#define MSG_BUF_SIZE 512
 
-extern pthread_mutex_t mutex_lock;
+extern pthread_mutex_t mutex_image;
+extern pthread_mutex_t mutex_valve;
 
 struct ValveSessionPayload {
   size_t sec;
@@ -39,7 +40,7 @@ struct CamPayload {
  * @param res: the onion_response structure as passed by ONION
  * @param users: the json_object structure as defined in <json-c/json.h>, storing all username/password combinations
  * as JSON object
- * @returns if a crediential is authenticated, returns a pointer to the user being authenticated, else returns NULL
+ * @returns if a crediential is authenticated, returns a char pointer to the user being authenticated, else returns NULL
  * Users needs to free() the returned const char* themselves
 */
 char* authenticate(onion_request *req, onion_response *res, json_object* users);

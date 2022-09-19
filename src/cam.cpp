@@ -74,9 +74,21 @@ void* thread_capture_live_image(void* payload) {
     putText(
       frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(255,255,255), 2 * font_scale, LINE_AA, false
     );
-    line(frame, Point(0, 720 * 0.65),  Point(1280 * 0.07, 720 * 0.65), Scalar(0, 0, 255), 10);
+    Point p1 = Point(0, 720 * 0.825 + 10);
+    Point p2 = Point(1280 * 0.31, 720 * 0.675 + 10);
+    Point p3 = Point(1280 * 0.37, 720 * 0.6375 + 10);
+    Point p4 = Point(1280 * 0.47, 720 * 0.5825 + 10);
+    Point p5 = Point(1280 * 0.57, 720 * 0.57 + 10);
+    Point p6 = Point(1280 * 0.67, 720 * 0.56 + 10);
+    Point p7 = Point(1280 * 0.77, 720 * 0.555 + 10);
+    line(frame, p1, p2, Scalar(0, 0, 255), 16);
+    line(frame, p2,  p3, Scalar(0, 0, 255), 14);
+    line(frame, p3,  p4, Scalar(0, 0, 255), 12);
+    line(frame, p4,  p5, Scalar(0, 0, 255), 12);
+    line(frame, p5,  p6, Scalar(0, 0, 255), 8);
+    line(frame, p6,  p7, Scalar(0, 0, 255), 6);
     imencode(".jpg", frame, buf, s);
-    pthread_mutex_lock(&mutex_lock);
+    pthread_mutex_lock(&mutex_image);
     if (pl->jpeg_image_size > 0) {
       pl->jpeg_image_size = 0;
       free(pl->jpeg_image);
@@ -84,7 +96,7 @@ void* thread_capture_live_image(void* payload) {
     pl->jpeg_image = (uint8_t*)malloc(buf.size());
     pl->jpeg_image_size = buf.size();
     memcpy(pl->jpeg_image, &(buf[0]), buf.size());
-    pthread_mutex_unlock(&mutex_lock);
+    pthread_mutex_unlock(&mutex_image);
   }
   cap.release();
   ONION_INFO("thread_capture_live_image() quits gracefully");

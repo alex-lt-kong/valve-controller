@@ -3,8 +3,8 @@
 
 #include "utils.h"
 
-pthread_mutex_t mutex_lock;
-
+pthread_mutex_t mutex_image;
+pthread_mutex_t mutex_valve;
 char* authenticate(onion_request *req, onion_response *res, json_object* users) {
   const char *auth_header = onion_request_get_header(req, "Authorization");
   char *auth_header_val = NULL;
@@ -14,8 +14,8 @@ char* authenticate(onion_request *req, onion_response *res, json_object* users) 
     auth_header_val = onion_base64_decode(&auth_header[6], NULL);
     supplied_username = auth_header_val;
     int i = 0;
-    while (auth_header_val[i] != '\0' && auth_header_val[i] != ':') { i++; }    
-    if (auth_header_val[i] == ':') {
+    while (auth_header_val[i] != '\0' && auth_header_val[i] != ':' && i < MSG_BUF_SIZE + 1) { i++; }    
+    if (auth_header_val[i] == ':' && i < MSG_BUF_SIZE) {
         auth_header_val[i] = '\0'; // supplied_username is set to auth_header_val, we terminate auth to make supplied_username work
         supplied_passwd = &auth_header_val[i + 1];
     }
@@ -24,7 +24,7 @@ char* authenticate(onion_request *req, onion_response *res, json_object* users) 
       
       const char* password = json_object_get_string(users_passwd);
       if (password != NULL && strncmp(supplied_passwd, password, strlen(password)) == 0) {
-        char* authenticated_username = malloc(strnlen(supplied_username, PATH_MAX - 1) + 1);
+        char* authenticated_username = malloc(strlen(supplied_username) + 1);
         strcpy(authenticated_username, supplied_username);
         supplied_username = NULL;
         supplied_passwd = NULL;

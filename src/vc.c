@@ -21,7 +21,10 @@
 #include "utils.h"
 #define GPIO_PIN 17
 
-char db_path[PATH_MAX];
+char* bin_path;
+char* db_path;
+char* public_dir;
+char* settings_path;
 struct CamPayload cpl;
 json_object* root_users;
 
@@ -33,7 +36,13 @@ int get_valve_session_history_json(void *p, onion_request *req, onion_response *
   }
 
   sqlite3_stmt *stmt;
-  if (sqlite3_prepare_v2(db, "SELECT record_id, record_time, username, duration_sec FROM valve_session LIMIT 100", -1, &stmt, NULL)) {
+  if (
+    sqlite3_prepare_v2(
+      db,
+      "SELECT record_id, record_time, username, duration_sec FROM valve_session LIMIT 100",
+      -1, &stmt, NULL
+    )
+  ) {
       ONION_ERROR("Error executing SELECT statement");
       sqlite3_close(db);
       return 2;
@@ -69,14 +78,14 @@ int get_live_image_jpg(void *p, onion_request *req, onion_response *res) {
   if (cpl.jpeg_image_size == 0) {
     return onion_shortcut_response("JPEG image is empty!", HTTP_NOT_FOUND, req, res);
   }
-  pthread_mutex_lock(&mutex_lock);
+  pthread_mutex_lock(&mutex_image);
   uint8_t* jpeg_copy = (uint8_t*)malloc(cpl.jpeg_image_size);
   if (jpeg_copy == NULL) {
     ONION_ERROR("malloc() failed");
     return onion_shortcut_response("", HTTP_INTERNAL_ERROR, req, res);
   }
   memcpy(jpeg_copy, cpl.jpeg_image, cpl.jpeg_image_size);
-  pthread_mutex_unlock(&mutex_lock);
+  pthread_mutex_unlock(&mutex_image);
   onion_response_set_header(res, "Content-Type", "image/jpg");  
   onion_response_write(res, (char*)jpeg_copy, cpl.jpeg_image_size);
   free(jpeg_copy);
@@ -84,22 +93,19 @@ int get_live_image_jpg(void *p, onion_request *req, onion_response *res) {
 }
 
 void* valve_session(void* payload) {
+  pthread_mutex_lock(&mutex_valve);
   struct ValveSessionPayload* pl = (struct ValveSessionPayload*)payload;
-  if (pl->sec <= 0) {
-    return NULL;
-  }
   gpioSetMode(GPIO_PIN, PI_OUTPUT); //make P0 output
   gpioWrite(GPIO_PIN, PI_HIGH);
-  ONION_INFO("Solenoid valve opened");
+  ONION_INFO("Solenoid valve opened by [%s] for [%d] seconds", pl->username, pl->sec);
   sleep(pl->sec);  
   gpioWrite(GPIO_PIN, PI_LOW);
-  ONION_INFO("Solenoid valve closed");
-
+  ONION_INFO("Solenoid valve closed", pl->username);
+  pthread_mutex_unlock(&mutex_valve);
 
   sqlite3 *db;
   time_t now;
   char msg[MSG_BUF_SIZE];
-
   const char* sql_create = 
       "CREATE TABLE IF NOT EXISTS valve_session"
       "("
@@ -144,6 +150,7 @@ void* valve_session(void* payload) {
       }
   }
   sqlite3_close(db);
+  free(pl);
   return NULL;
 }
 
@@ -154,8 +161,8 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     return OCS_PROCESSED;
   }
   char msg[MSG_BUF_SIZE];
-  struct ValveSessionPayload pl;
-  strcpy(pl.username, authenticated_user);
+  struct ValveSessionPayload* pl = (struct ValveSessionPayload*)malloc(sizeof(struct ValveSessionPayload));
+  strcpy(pl->username, authenticated_user);
   free(authenticated_user);
 
   const char* length_sec_str = onion_request_get_query(req, "length_sec");
@@ -166,17 +173,39 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     snprintf(msg, MSG_BUF_SIZE, "%s is too long for parameter length_sec", length_sec_str);
     return onion_shortcut_response(msg, HTTP_BAD_REQUEST, req, res);
   }
-  pl.sec = atoi(length_sec_str);
-  
-  pthread_t tid;
-  if (pthread_create(&tid, NULL, valve_session, &pl) == 0) {
-    snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"success\", \"data\":\"Valve session length: %dsec\"}", pl.sec);
-    return onion_shortcut_response(msg, HTTP_OK, req, res);
-  } else {
-    snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"error\", \"data\":\"Failed to create a valve session\"}");
+  pl->sec = atoi(length_sec_str);
+  if (pl->sec <= 0) {
+    snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"error\", \"data\":\"pl.sec == %d, valve session will be skipped\"}", pl->sec);
     ONION_ERROR(msg);
-    return onion_shortcut_response(msg, HTTP_INTERNAL_ERROR, req, res);
+    onion_response_printf(res, msg);
+    onion_response_set_code(res, HTTP_BAD_REQUEST);
+    return OCS_PROCESSED;
   }
+  if (pthread_mutex_trylock(&mutex_valve) == 0) {
+    pthread_mutex_unlock(&mutex_valve) ;
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, valve_session, pl) == 0) {
+      snprintf(msg, MSG_BUF_SIZE, 
+        "{"
+          "\"status\":\"success\", "
+          "\"data\":{\"session length\": %d}"
+        "}",
+        pl->sec
+      );
+      onion_response_printf(res, msg);
+      onion_response_set_code(res, HTTP_OK);
+      return OCS_PROCESSED;
+    } else {
+      pthread_mutex_unlock(&mutex_valve);
+      snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"error\", \"data\":\"Failed to create a valve session\"}");
+      ONION_ERROR(msg);
+      return onion_shortcut_response(msg, HTTP_INTERNAL_ERROR, req, res);
+    }
+  }
+  snprintf(msg, MSG_BUF_SIZE, "{\"status\":\"error\", \"data\":\"Existing valve session sill running\"}");
+  ONION_ERROR(msg);
+  return onion_shortcut_response(msg, HTTP_BAD_REQUEST, req, res);
+  
 }
 
 int get_logged_in_user_json(void *p, onion_request *req, onion_response *res) {
@@ -199,28 +228,18 @@ int index_page(void *p, onion_request *req, onion_response *res) {
     return OCS_PROCESSED;
   }
   free(authenticated_user);
-  char tmp_dir[PATH_MAX], public_dir[PATH_MAX], file_path[PATH_MAX];
-  readlink("/proc/self/exe", tmp_dir, PATH_MAX - 128);
-  char* parent_dir = dirname(tmp_dir); // doc exlicitly says we shouldNT free() it.
-  //strncpy(public_dir, parent_dir, PATH_MAX - 1);
-  // If the length of src is less than n, strncpy() writes an additional NULL characters to dest to ensure that
-  // a total of n characters are written.
-  // HOWEVER, if there is no null character among the first n character of src, the string placed in dest will
-  // not be null-terminated. So strncpy() does not guarantee that the destination string will be NULL terminated.
-  // Ref: https://www.geeksforgeeks.org/why-strcpy-and-strncpy-are-not-safe-to-use/
-  strncpy(public_dir, parent_dir, PATH_MAX - 1);
-  strcpy(public_dir + strnlen(public_dir, PATH_MAX - 1), "/public/");
+  char file_path[1024] = "";
   const char* file_name = onion_request_get_query(req, "file_name");
-  strncpy(file_path, public_dir, PATH_MAX);
+  strcpy(file_path, public_dir);
   if (file_name == NULL) {
-    strcpy(file_path + strnlen(file_path, PATH_MAX), "html/index.html");
+    strcat(file_path, "html/index.html");
   }
   else if (strcmp(file_name, "vc.js") == 0) {
-    strcpy(file_path + strnlen(file_path, PATH_MAX), "js/vc.js");
+    strcat(file_path, "js/vc.js");
   } else if (strcmp(file_name, "favicon.svg") == 0) {
-    strcpy(file_path + strnlen(file_path, PATH_MAX), "img/favicon.svg");
+    strcat(file_path, "img/favicon.svg");
   } else {
-    strcpy(file_path + strnlen(file_path, PATH_MAX), "html/index.html");
+    strcat(file_path, "html/index.html");
   }
   return onion_shortcut_response_file(file_path, req, res);
 }
@@ -228,7 +247,7 @@ int index_page(void *p, onion_request *req, onion_response *res) {
 
 onion *o=NULL;
 
-static void shutdown_server(int sig_num){
+static void shutdown_server(int sig_num) {
   char msg[MSG_BUF_SIZE];
   snprintf(msg, MSG_BUF_SIZE, "Signal %d received", sig_num);
   ONION_WARNING(msg);
@@ -250,15 +269,32 @@ void initialize_sig_handler() {
   sigaction(SIGTERM, &act, 0);
 }
 
-int main(int argc, char **argv) {
-
-  char bin_path[PATH_MAX], settings_path[PATH_MAX] = "";
- 
-  realpath(argv[0], bin_path);
+void initialize_paths(char* argv) {
+  settings_path = (char*)malloc(PATH_MAX);
+  bin_path = (char*)malloc(PATH_MAX);
+  realpath(argv, bin_path);
   strcpy(settings_path, dirname(bin_path));
+  db_path = (char*)malloc(PATH_MAX);
+  public_dir = (char*)malloc(PATH_MAX);
+  strcpy(public_dir, settings_path);  
   strcpy(db_path, settings_path);
   strcat(settings_path, "/settings.json");
   strcat(db_path, "/data.sqlite");
+  strcat(public_dir, "/public/");
+
+  ONION_INFO("public_dir: [%s], db_path: [%s], settings_path: [%s]", public_dir, db_path, settings_path);
+}
+
+void free_paths() {
+  free(public_dir);
+  free(db_path);
+  free(bin_path);
+  free(settings_path);
+}
+
+int main(int argc, char **argv) {
+  initialize_paths(argv[0]);
+  
   json_object* root = json_object_from_file(settings_path);
   json_object* root_app = json_object_object_get(root, "app");
   json_object* root_app_port = json_object_object_get(root_app, "port");
@@ -274,29 +310,32 @@ int main(int argc, char **argv) {
   const char* ssl_crt_path = json_object_get_string(root_app_ssl_crt_path);
   const char* ssl_key_path = json_object_get_string(root_app_ssl_key_path);
   cpl.devicePath = json_object_get_string(root_app_video_device_path);
+
   if (
-    log_path ==NULL ||  ssl_crt_path == NULL || ssl_key_path == NULL
+    log_path == NULL ||  ssl_crt_path == NULL || ssl_key_path == NULL
   ) {
     ONION_ERROR("Either root_app_log_path, ssl_crt_path, ssl_key_path is not set.");
     return 3;
+  }
+  
+  if (argc == 2 && strcmp(argv[1], "--debug") == 0) {
+    fprintf(stderr, "Debug mode enabled, the only change is that log will be sent to stderr instead of a log file\n");
+  } else {
+    freopen(log_path, "a", stderr);
   }
 
   if (gpioInitialise() < 0) {
     ONION_ERROR("pigpio initialisation failed, program will quit\n");
     json_object_put(root);
+    free_paths();
     return 4;
   }
-  if (pthread_mutex_init(&mutex_lock, NULL) != 0) {
-      ONION_ERROR("Failed to initialize a mutex");
-      gpioTerminate();
-      json_object_put(root);
-      return 5;
-  }
-
-  if (argc == 2 && strcmp(argv[1], "--debug") == 0) {
-    fprintf(stderr, "Debug mode enabled, the only change is that log will be sent to stderr instead of a log file\n");
-  } else {
-    freopen(log_path, "a", stderr);
+  if (pthread_mutex_init(&mutex_image, NULL) != 0 || pthread_mutex_init(&mutex_valve, NULL) != 0) {
+    ONION_ERROR("Failed to initialize a mutex");
+    gpioTerminate();
+    json_object_put(root);
+    free_paths();
+    return 5;
   }
 
   ONION_VERSION_IS_COMPATIBLE_OR_ABORT();
@@ -322,7 +361,9 @@ int main(int argc, char **argv) {
     onion_free(o);
     gpioTerminate();
     json_object_put(root);
-    pthread_mutex_destroy(&mutex_lock);
+    pthread_mutex_destroy(&mutex_image);
+    pthread_mutex_destroy(&mutex_valve);
+    free_paths();
     return 6;
   }
 
@@ -339,7 +380,8 @@ int main(int argc, char **argv) {
   onion_free(o);
   gpioTerminate();
   json_object_put(root);
-  pthread_mutex_destroy(&mutex_lock);
-  freopen("/dev/tty", "a", stderr); // may have side effects, but fit our purpose for the time being.
+  pthread_mutex_destroy(&mutex_image);
+  pthread_mutex_destroy(&mutex_valve);
+  free_paths();
   return 0;
 }

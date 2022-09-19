@@ -69,16 +69,17 @@ class ValveSessionHistory extends React.Component {
       selectableRowsHeader: false,
       sortOrder: {
         name: 'record_time',
-        direction: 'asc'
+        direction: 'desc'
       },
       filter: false,
       viewColumns: false,
+      search: false,
       selectableRows: 'none'
     };
 
     if (this.state.valveSessionHistory !== null) {
       return (
-        <MUIDataTable title={'历史记录'} data={this.state.valveSessionHistory} columns={columns} options={options} />
+        <MUIDataTable data={this.state.valveSessionHistory} columns={columns} options={options} />
       );
     } else {
       return <></>;
@@ -88,11 +89,11 @@ class ValveSessionHistory extends React.Component {
 
 function LinearProgressWithLabel(props) {
   return (
-    <Box sx={{display: 'flex', alignItems: 'center'}} mx='2em'>
+    <Box sx={{display: 'flex', alignItems: 'center'}} ml='2em' mr='0.5em'>
       <Box sx={{width: '100%', mr: 1}}>
         <LinearProgress variant="determinate" {...props} />
       </Box>
-      <Box sx={{minWidth: '4em'}}>
+      <Box sx={{minWidth: '5em'}}>
         <Typography variant="body2" color="text.secondary">
           {`${props.secondstotal - props.seconds}/${props.secondstotal}秒`}
         </Typography>
@@ -115,9 +116,14 @@ LinearProgressWithLabel.propTypes = {
 class LiveImages extends React.Component {
   constructor(props) {
     super(props);
+    this.parsedValveSessionLengthSec = parseInt(localStorage.getItem('valveSessionLengthSec'));
+    if ([10, 60, 120, 240, 300].includes(this.parsedValveSessionLengthSec)) {
+    } else {
+      this.parsedValveSessionLengthSec = 10;
+    }
     this.state = {
       imageEndpoint: './get_live_image_jpg/',
-      valveSessionLengthSec: 10,
+      valveSessionLengthSec: this.parsedValveSessionLengthSec,
       simpleSnackbar: null,
       secondsTotal: 0,
       seconds: 0
@@ -128,6 +134,7 @@ class LiveImages extends React.Component {
 
     this.onSelectItemChange = this.onSelectItemChange.bind(this);
     this.onOpenValveButtonClick = this.onOpenValveButtonClick.bind(this);
+    this.parsedValveSessionLengthSec = parseInt(localStorage.getItem('valveSessionLengthSec'));
   }
 
   componentDidMount() {}
@@ -136,6 +143,8 @@ class LiveImages extends React.Component {
     const parsedValue = parseInt(event.target.value);
     this.setState({
       valveSessionLengthSec: parsedValue
+    }, () => {
+      localStorage.setItem('valveSessionLengthSec', parsedValue);
     });
   }
 
@@ -151,7 +160,7 @@ class LiveImages extends React.Component {
         })
         .catch((error) => {
           console.error(error);
-          alert(`${error}`);
+          alert(`${JSON.stringify(error.response.data)}`);
         });
   }
 
@@ -203,7 +212,9 @@ class LiveImages extends React.Component {
                     label="时长" onChange={this.onSelectItemChange}
                   >
                     <MenuItem value={10}>10秒</MenuItem>
-                    <MenuItem value={60}>60秒</MenuItem>
+                    <MenuItem value={60}>1分钟</MenuItem>
+                    <MenuItem value={120}>2分钟</MenuItem>
+                    <MenuItem value={240}>4分钟</MenuItem>
                     <MenuItem value={300}>5分钟</MenuItem>
                   </Select>
                 </FormControl>
