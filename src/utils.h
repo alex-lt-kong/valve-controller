@@ -29,6 +29,7 @@ struct CamPayload {
   const char* devicePath;
   uint8_t* jpeg_image;
   int jpeg_image_size;
+  bool valve_state;
 };
 
 /**
@@ -44,11 +45,5 @@ struct CamPayload {
  * Users needs to free() the returned const char* themselves
 */
 char* authenticate(onion_request *req, onion_response *res, json_object* users);
-
-int play_sound(const char* sound_path);
-
-void* handle_sound_name_queue();
-
-bool is_file_accessible(const char* file_path);
 
 #endif /* UTILS_H */

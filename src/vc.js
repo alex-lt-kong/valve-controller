@@ -25,11 +25,13 @@ class ValveSessionHistory extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      valveSessionHistory: null
+      valveSessionHistory: null,
+      refreshValveSessionHistory: props.refreshValveSessionHistory
     };
   }
 
-  componentDidMount() {
+
+  refreshValveSessionHistory() {
     axios.get('../get_valve_session_history_json/')
         .then((response) => {
           this.setState({
@@ -40,11 +42,12 @@ class ValveSessionHistory extends React.Component {
         })
         .catch((error) => {
           console.log(error);
-          alert(`${error}`);
-        // You canNOT write error.response or whatever similar here.
-        // The reason is that this catch() catches both network error and other errors,
-        // which may or may not have a response property.
+          alert(`${JSON.stringify(error.response.data)}`);
         });
+  }
+
+  componentDidMount() {
+    this.refreshValveSessionHistory();
   }
 
   render() {
@@ -87,6 +90,10 @@ class ValveSessionHistory extends React.Component {
   }
 }
 
+ValveSessionHistory.propTypes = {
+  refreshValveSessionHistory: PropTypes.func
+};
+/*
 function LinearProgressWithLabel(props) {
   return (
     <Box sx={{display: 'flex', alignItems: 'center'}} ml='2em' mr='0.5em'>
@@ -101,23 +108,14 @@ function LinearProgressWithLabel(props) {
     </Box>
   );
 }
-
-LinearProgressWithLabel.propTypes = {
-  /**
-   * The value of the progress indicator for the determinate and buffer variants.
-   * Value between 0 and 100.
-   */
-  value: PropTypes.number.isRequired,
-  secondstotal: PropTypes.number,
-  seconds: PropTypes.number
-};
+*/
 
 
 class LiveImages extends React.Component {
   constructor(props) {
     super(props);
     this.parsedValveSessionLengthSec = parseInt(localStorage.getItem('valveSessionLengthSec'));
-    if ([10, 60, 120, 240, 300].includes(this.parsedValveSessionLengthSec)) {
+    if ([10, 120, 300, 600, 900, 1200].includes(this.parsedValveSessionLengthSec)) {
     } else {
       this.parsedValveSessionLengthSec = 10;
     }
@@ -212,10 +210,11 @@ class LiveImages extends React.Component {
                     label="时长" onChange={this.onSelectItemChange}
                   >
                     <MenuItem value={10}>10秒</MenuItem>
-                    <MenuItem value={60}>1分钟</MenuItem>
                     <MenuItem value={120}>2分钟</MenuItem>
-                    <MenuItem value={240}>4分钟</MenuItem>
                     <MenuItem value={300}>5分钟</MenuItem>
+                    <MenuItem value={600}>10分钟</MenuItem>
+                    <MenuItem value={900}>15分钟</MenuItem>
+                    <MenuItem value={1200}>20分钟</MenuItem>
                   </Select>
                 </FormControl>
                 <Button size="small" color="primary" onClick={this.onOpenValveButtonClick}>
@@ -226,10 +225,11 @@ class LiveImages extends React.Component {
           </CardContent>
           <CardActions>
             <Box sx={{width: '100%'}}>
+              {/*
               <LinearProgressWithLabel
                 value={(this.state.secondsTotal - this.state.seconds) / this.state.secondsTotal * 100}
                 seconds={this.state.seconds} secondstotal={this.state.secondsTotal}
-              />
+              />*/}
             </Box>
           </CardActions>
         </Card>

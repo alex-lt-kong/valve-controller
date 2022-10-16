@@ -39,7 +39,7 @@ int get_valve_session_history_json(void *p, onion_request *req, onion_response *
   if (
     sqlite3_prepare_v2(
       db,
-      "SELECT record_id, record_time, username, duration_sec FROM valve_session LIMIT 100",
+      "SELECT record_id, record_time, username, duration_sec FROM valve_session ORDER BY record_time DESC LIMIT 100",
       -1, &stmt, NULL
     )
   ) {
@@ -97,9 +97,11 @@ void* valve_session(void* payload) {
   struct ValveSessionPayload* pl = (struct ValveSessionPayload*)payload;
   gpioSetMode(GPIO_PIN, PI_OUTPUT); //make P0 output
   gpioWrite(GPIO_PIN, PI_HIGH);
+  cpl.valve_state = true;
   ONION_INFO("Solenoid valve opened by [%s] for [%d] seconds", pl->username, pl->sec);
   sleep(pl->sec);  
   gpioWrite(GPIO_PIN, PI_LOW);
+  cpl.valve_state = false;
   ONION_INFO("Solenoid valve closed", pl->username);
   pthread_mutex_unlock(&mutex_valve);
 
@@ -182,7 +184,6 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
     return OCS_PROCESSED;
   }
   if (pthread_mutex_trylock(&mutex_valve) == 0) {
-    pthread_mutex_unlock(&mutex_valve) ;
     pthread_t tid;
     if (pthread_create(&tid, NULL, valve_session, pl) == 0) {
       snprintf(msg, MSG_BUF_SIZE, 
@@ -310,6 +311,7 @@ int main(int argc, char **argv) {
   const char* ssl_crt_path = json_object_get_string(root_app_ssl_crt_path);
   const char* ssl_key_path = json_object_get_string(root_app_ssl_key_path);
   cpl.devicePath = json_object_get_string(root_app_video_device_path);
+  cpl.valve_state = false;
 
   if (
     log_path == NULL ||  ssl_crt_path == NULL || ssl_key_path == NULL

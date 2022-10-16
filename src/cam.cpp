@@ -31,6 +31,7 @@ void* thread_capture_live_image(void* payload) {
   time_t now;
 
   char dt_buf[] = "1970-01-01 00:00:00";
+  char valve_state_buf[] = "State: OFF";
   std::vector<uint8_t> buf = {};
   std::vector<int> s = {};
   const uint16_t interval = 2;
@@ -41,7 +42,7 @@ void* thread_capture_live_image(void* payload) {
       snprintf(msg, MSG_BUF_SIZE, "cap.open(%s)'ing...", pl->devicePath);
       ONION_INFO(msg);
       result = cap.open(pl->devicePath);
-      cap.set(CAP_PROP_FOURCC, VideoWriter::fourcc('M', 'J', 'P', 'G')); 
+      //cap.set(CAP_PROP_FOURCC, VideoWriter::fourcc('M', 'J', 'P', 'G')); 
       cap.set(CAP_PROP_FRAME_WIDTH, 1280);
       cap.set(CAP_PROP_FRAME_HEIGHT, 720);
       if (cap.isOpened()) {
@@ -66,14 +67,17 @@ void* thread_capture_live_image(void* payload) {
     rotate(frame, frame, ROTATE_180);
     time(&now);
     strftime(dt_buf, sizeof(dt_buf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    if (pl->valve_state) {
+      strcpy(valve_state_buf + 7, "ON");
+    } else {
+      strcpy(valve_state_buf + 7, "OFF");
+    }
     uint16_t font_scale = 2;
     Size textSize = getTextSize(dt_buf, FONT_HERSHEY_DUPLEX, font_scale, 8 * font_scale, nullptr);
-    putText(
-      frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false
-    );
-    putText(
-      frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(255,255,255), 2 * font_scale, LINE_AA, false
-    );
+    putText(frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false);
+    putText(frame, dt_buf, Point(5, textSize.height * 1.05), FONT_HERSHEY_DUPLEX, font_scale, Scalar(255,255,255), 2 * font_scale, LINE_AA, false);
+    putText(frame, valve_state_buf, Point(5, textSize.height * 1.05 * 2), FONT_HERSHEY_DUPLEX, font_scale, Scalar(0,  0,  0  ), 8 * font_scale, LINE_AA, false);
+    putText(frame, valve_state_buf, Point(5, textSize.height * 1.05 * 2), FONT_HERSHEY_DUPLEX, font_scale, Scalar(255,255,255), 2 * font_scale, LINE_AA, false);
     Point p1 = Point(0, 720 * 0.825 + 10);
     Point p2 = Point(1280 * 0.31, 720 * 0.675 + 10);
     Point p3 = Point(1280 * 0.37, 720 * 0.6375 + 10);
