@@ -93,8 +93,12 @@ int get_live_image_jpg(void *p, onion_request *req, onion_response *res) {
 }
 
 void* valve_session(void* payload) {
-  pthread_mutex_lock(&mutex_valve);
   struct ValveSessionPayload* pl = (struct ValveSessionPayload*)payload;
+  if (gpioInitialise() < 0) {
+    ONION_ERROR("pigpio initialisation failed, valve_session() will not proceed\n");
+    free(pl);
+    return NULL;
+  }
   gpioSetMode(GPIO_PIN, PI_OUTPUT); //make P0 output
   gpioWrite(GPIO_PIN, PI_HIGH);
   cpl.valve_state = true;
@@ -102,6 +106,7 @@ void* valve_session(void* payload) {
   sleep(pl->sec);  
   gpioWrite(GPIO_PIN, PI_LOW);
   cpl.valve_state = false;
+  gpioTerminate();
   ONION_INFO("Solenoid valve closed", pl->username);
   pthread_mutex_unlock(&mutex_valve);
 
@@ -186,6 +191,10 @@ int oepn_valve(void *p, onion_request *req, onion_response *res) {
   if (pthread_mutex_trylock(&mutex_valve) == 0) {
     pthread_t tid;
     if (pthread_create(&tid, NULL, valve_session, pl) == 0) {
+      pthread_detach(tid);
+      // We need to detach the thread so when valve_session() returns, the thread resources will be
+      // fully released; otherwise, it is suspected that some thread resources will NOT be released and we will
+      // be unable to pthread_create() new threads a while later, resulting in "Cannot allocate memory" error.
       snprintf(msg, MSG_BUF_SIZE, 
         "{"
           "\"status\":\"success\", "
@@ -326,15 +335,8 @@ int main(int argc, char **argv) {
     freopen(log_path, "a", stderr);
   }
 
-  if (gpioInitialise() < 0) {
-    ONION_ERROR("pigpio initialisation failed, program will quit\n");
-    json_object_put(root);
-    free_paths();
-    return 4;
-  }
   if (pthread_mutex_init(&mutex_image, NULL) != 0 || pthread_mutex_init(&mutex_valve, NULL) != 0) {
     ONION_ERROR("Failed to initialize a mutex");
-    gpioTerminate();
     json_object_put(root);
     free_paths();
     return 5;
@@ -361,7 +363,6 @@ int main(int argc, char **argv) {
   if (pthread_create(&tid, NULL, thread_capture_live_image, &cpl) != 0) {
     ONION_ERROR("Failed to pthread_create() thread_capture_live_image");
     onion_free(o);
-    gpioTerminate();
     json_object_put(root);
     pthread_mutex_destroy(&mutex_image);
     pthread_mutex_destroy(&mutex_valve);
@@ -380,7 +381,6 @@ int main(int argc, char **argv) {
   ONION_INFO("Onion server quits gracefully");
   pthread_join(tid, NULL);
   onion_free(o);
-  gpioTerminate();
   json_object_put(root);
   pthread_mutex_destroy(&mutex_image);
   pthread_mutex_destroy(&mutex_valve);
